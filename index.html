@@ -1,0 +1,1001 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>GitFlow Dashboard</title>
+    <style>
+      :root {
+        --bg: #070d18;
+        --bg-2: #0d1525;
+        --panel: rgba(17, 24, 39, 0.8);
+        --panel-strong: rgba(15, 23, 42, 0.98);
+        --soft: rgba(148, 163, 184, 0.08);
+        --soft-2: rgba(148, 163, 184, 0.14);
+        --line: rgba(148, 163, 184, 0.15);
+        --text: #edf4ff;
+        --muted: #a1b0c8;
+        --primary: #5eead4;
+        --secondary: #8b5cf6;
+        --blue: #60a5fa;
+        --green: #34d399;
+        --yellow: #fbbf24;
+        --red: #f87171;
+        --orange: #fb923c;
+        --shadow: 0 22px 50px rgba(10, 15, 25, 0.45);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html, body {
+        margin: 0;
+        min-height: 100%;
+        font-family: Inter, "Segoe UI", sans-serif;
+        background:
+          radial-gradient(circle at top left, rgba(139, 92, 246, 0.18), transparent 24%),
+          radial-gradient(circle at right, rgba(94, 234, 212, 0.08), transparent 22%),
+          var(--bg);
+        color: var(--text);
+      }
+
+      body {
+        min-height: 100vh;
+      }
+
+      a {
+        color: inherit;
+        text-decoration: none;
+      }
+
+      .app {
+        display: grid;
+        grid-template-columns: 260px 1fr;
+        min-height: 100vh;
+      }
+
+      .sidebar {
+        background: rgba(10, 15, 25, 0.92);
+        border-right: 1px solid var(--line);
+        padding: 22px 18px;
+        position: sticky;
+        top: 0;
+        height: 100vh;
+      }
+
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 8px 10px 16px;
+      }
+
+      .logo {
+        width: 38px;
+        height: 38px;
+        border-radius: 12px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: 800;
+        color: white;
+        background: linear-gradient(135deg, #8b5cf6, #5eead4);
+        box-shadow: 0 12px 28px rgba(139, 92, 246, 0.4);
+      }
+
+      .brand h3 {
+        margin: 0;
+        font-size: 1rem;
+      }
+
+      .nav {
+        margin-top: 18px;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+
+      .nav-item {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 12px 14px;
+        border-radius: 12px;
+        color: var(--muted);
+        border: 1px solid transparent;
+        transition: 0.2s ease;
+      }
+
+      .nav-item:hover {
+        background: rgba(148, 163, 184, 0.04);
+        color: var(--text);
+      }
+
+      .nav-item.active {
+        background: linear-gradient(135deg, rgba(139, 92, 246, 0.14), rgba(94, 234, 212, 0.05));
+        border-color: rgba(94, 234, 212, 0.18);
+        color: var(--text);
+      }
+
+      .nav-bullet {
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        background: linear-gradient(135deg, var(--primary), var(--secondary));
+        box-shadow: 0 0 16px rgba(94, 234, 212, 0.7);
+      }
+
+      .side-card {
+        margin-top: 28px;
+        background: rgba(148, 163, 184, 0.04);
+        border: 1px solid var(--line);
+        border-radius: 18px;
+        padding: 18px 16px;
+      }
+
+      .side-card h4 {
+        margin: 0 0 12px;
+        font-size: 0.72rem;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: var(--muted);
+      }
+
+      .mini-stat {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 12px;
+      }
+
+      .mini-stat:last-child {
+        margin-bottom: 0;
+      }
+
+      .mini-stat span {
+        color: var(--muted);
+        font-size: 0.85rem;
+      }
+
+      .mini-stat strong {
+        font-size: 0.92rem;
+      }
+
+      .main {
+        padding: 24px 24px 28px;
+      }
+
+      .topbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 18px;
+        margin-bottom: 18px;
+      }
+
+      .search {
+        flex: 1;
+        max-width: 760px;
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        padding: 12px 14px;
+        background: rgba(148, 163, 184, 0.04);
+        display: flex;
+        align-items: center;
+      }
+
+      .search input {
+        width: 100%;
+        border: none;
+        outline: none;
+        background: transparent;
+        color: var(--text);
+        font-size: 0.94rem;
+      }
+
+      .search input::placeholder {
+        color: var(--muted);
+      }
+
+      .top-actions {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+
+      .icon-btn {
+        width: 42px;
+        height: 42px;
+        border-radius: 12px;
+        border: 1px solid var(--line);
+        background: rgba(148, 163, 184, 0.04);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1.1rem;
+      }
+
+      .avatar {
+        width: 42px;
+        height: 42px;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: 700;
+        color: white;
+        background: linear-gradient(135deg, #5eead4, #8b5cf6);
+        border: 1px solid rgba(94, 234, 212, 0.4);
+      }
+
+      .hero {
+        display: grid;
+        grid-template-columns: 1.45fr 0.95fr;
+        gap: 18px;
+        margin-bottom: 18px;
+      }
+
+      .panel {
+        background: linear-gradient(180deg, rgba(17,24,39,0.86), rgba(15,23,42,0.72));
+        border: 1px solid var(--line);
+        border-radius: 22px;
+        box-shadow: var(--shadow);
+      }
+
+      .welcome {
+        padding: 26px 24px 18px;
+        background:
+          linear-gradient(135deg, rgba(139, 92, 246, 0.18), rgba(94, 234, 212, 0.08)),
+          rgba(17, 24, 39, 0.84);
+      }
+
+      .tag {
+        display: inline-flex;
+        padding: 7px 11px;
+        border-radius: 999px;
+        background: rgba(94, 234, 212, 0.08);
+        border: 1px solid rgba(94, 234, 212, 0.18);
+        color: var(--primary);
+        font-size: 0.72rem;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+
+      .welcome h1 {
+        margin: 14px 0 10px;
+        font-size: clamp(2.2rem, 3vw, 3.3rem);
+        line-height: 1.08;
+      }
+
+      .welcome p {
+        margin: 0;
+        color: var(--muted);
+        line-height: 1.7;
+        max-width: 620px;
+      }
+
+      .cta-row {
+        margin-top: 22px;
+        display: flex;
+        gap: 12px;
+        flex-wrap: wrap;
+      }
+
+      .btn {
+        border: 1px solid var(--line);
+        background: rgba(255,255,255,0.02);
+        color: var(--text);
+        border-radius: 12px;
+        padding: 12px 16px;
+        font-weight: 600;
+        cursor: pointer;
+      }
+
+      .btn.primary {
+        background: linear-gradient(135deg, var(--secondary), var(--primary));
+        border: none;
+        color: #07131e;
+      }
+
+      .summary {
+        padding: 20px;
+      }
+
+      .summary-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 18px;
+      }
+
+      .summary-head h3 {
+        margin: 0;
+        font-size: 1rem;
+      }
+
+      .chip {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        height: 28px;
+        padding: 0 10px;
+        border-radius: 999px;
+        font-size: 0.72rem;
+        font-weight: 700;
+        border: 1px solid var(--line);
+      }
+
+      .chip.green {
+        color: var(--green);
+        background: rgba(52, 211, 153, 0.08);
+        border-color: rgba(52, 211, 153, 0.18);
+      }
+
+      .chip.blue {
+        color: var(--blue);
+        background: rgba(96, 165, 250, 0.08);
+        border-color: rgba(96, 165, 250, 0.2);
+      }
+
+      .chip.yellow {
+        color: var(--yellow);
+        background: rgba(251, 191, 36, 0.08);
+        border-color: rgba(251, 191, 36, 0.2);
+      }
+
+      .chip.red {
+        color: var(--red);
+        background: rgba(248, 113, 113, 0.08);
+        border-color: rgba(248, 113, 113, 0.2);
+      }
+
+      .stat-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(120px, 1fr));
+        gap: 14px;
+      }
+
+      .stat-box {
+        padding: 16px;
+        border-radius: 16px;
+        background: rgba(148, 163, 184, 0.04);
+        border: 1px solid var(--line);
+      }
+
+      .stat-up {
+        font-size: 0.72rem;
+        color: var(--green);
+        margin-bottom: 10px;
+      }
+
+      .stat-num {
+        font-size: 1.8rem;
+        font-weight: 700;
+      }
+
+      .stat-label {
+        margin-top: 6px;
+        color: var(--muted);
+        font-size: 0.8rem;
+      }
+
+      .metrics {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(180px, 1fr));
+        gap: 18px;
+        margin-bottom: 18px;
+      }
+
+      .metric-card {
+        padding: 18px;
+      }
+
+      .metric-top {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 14px;
+      }
+
+      .metric-card h2 {
+        margin: 0;
+        font-size: 2rem;
+      }
+
+      .trend {
+        margin-top: 8px;
+        color: var(--muted);
+        font-size: 0.78rem;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        display: inline-block;
+      }
+
+      .content {
+        display: grid;
+        grid-template-columns: 1.4fr 0.95fr;
+        gap: 18px;
+      }
+
+      .section {
+        padding: 18px 18px 12px;
+      }
+
+      .section-head {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 14px;
+      }
+
+      .section-head h3 {
+        margin: 0;
+        font-size: 1rem;
+      }
+
+      .muted {
+        color: var(--muted);
+        font-size: 0.8rem;
+      }
+
+      .notify-list {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+      }
+
+      .notify {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 14px;
+        padding: 14px 12px;
+        border-radius: 16px;
+        background: rgba(148, 163, 184, 0.04);
+        border: 1px solid var(--line);
+      }
+
+      .notify-main {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+
+      .notif-icon {
+        width: 40px;
+        height: 40px;
+        border-radius: 12px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: 700;
+        background: linear-gradient(135deg, var(--secondary), var(--blue));
+        color: white;
+      }
+
+      .notif-icon.green {
+        background: linear-gradient(135deg, var(--green), #10b981);
+      }
+
+      .notif-icon.yellow {
+        background: linear-gradient(135deg, var(--yellow), #f59e0b);
+      }
+
+      .notif-title {
+        margin: 0;
+        font-size: 0.95rem;
+      }
+
+      .notif-sub {
+        margin: 4px 0 0;
+        color: var(--muted);
+        font-size: 0.8rem;
+      }
+
+      .status {
+        padding: 7px 10px;
+        border-radius: 999px;
+        font-size: 0.69rem;
+        font-weight: 700;
+        border: 1px solid var(--line);
+      }
+
+      .status.review {
+        color: var(--blue);
+        background: rgba(96, 165, 250, 0.08);
+        border-color: rgba(96, 165, 250, 0.2);
+      }
+
+      .status.merge {
+        color: var(--green);
+        background: rgba(52, 211, 153, 0.08);
+        border-color: rgba(52, 211, 153, 0.2);
+      }
+
+      .status.warning {
+        color: var(--yellow);
+        background: rgba(251, 191, 36, 0.08);
+        border-color: rgba(251, 191, 36, 0.2);
+      }
+
+      .right-stack {
+        display: flex;
+        flex-direction: column;
+        gap: 18px;
+      }
+
+      .release {
+        padding: 18px;
+      }
+
+      .release-row {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 12px 0;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .release-row:last-child {
+        border-bottom: none;
+      }
+
+      .timeline-dot {
+        width: 12px;
+        height: 12px;
+        border-radius: 50%;
+        background: linear-gradient(135deg, var(--primary), var(--secondary));
+        box-shadow: 0 0 18px rgba(94, 234, 212, 0.7);
+      }
+
+      .release-row h4 {
+        margin: 0;
+        font-size: 0.9rem;
+      }
+
+      .release-row p {
+        margin: 4px 0 0;
+        font-size: 0.8rem;
+        color: var(--muted);
+      }
+
+      .contributors {
+        padding: 18px;
+      }
+
+      .avatar-list {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin-top: 12px;
+      }
+
+      .avatar-list .avatar {
+        width: 40px;
+        height: 40px;
+        font-size: 0.76rem;
+      }
+
+      .a1 { background: linear-gradient(135deg, #7c3aed, #4f46e5); }
+      .a2 { background: linear-gradient(135deg, #38bdf8, #2563eb); }
+      .a3 { background: linear-gradient(135deg, #34d399, #0891b2); }
+      .a4 { background: linear-gradient(135deg, #f97316, #f59e0b); }
+      .a5 { background: linear-gradient(135deg, #f472b6, #a855f7); }
+
+      .repo-box {
+        margin-top: 18px;
+      }
+
+      .repo-list {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+      }
+
+      .repo-card {
+        padding: 14px 12px;
+        border-radius: 16px;
+        background: rgba(148, 163, 184, 0.04);
+        border: 1px solid var(--line);
+      }
+
+      .repo-top {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 8px;
+      }
+
+      .repo-name {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        font-weight: 600;
+      }
+
+      .repo-dot {
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        background: linear-gradient(135deg, var(--primary), var(--secondary));
+      }
+
+      .repo-code {
+        color: var(--muted);
+        font-size: 0.8rem;
+      }
+
+      .progress {
+        height: 8px;
+        margin-top: 10px;
+        border-radius: 999px;
+        background: rgba(148, 163, 184, 0.1);
+        overflow: hidden;
+      }
+
+      .progress span {
+        display: block;
+        width: 72%;
+        height: 100%;
+        border-radius: inherit;
+        background: linear-gradient(135deg, var(--primary), var(--secondary));
+      }
+
+      .repo-meta {
+        margin-top: 10px;
+        display: flex;
+        justify-content: space-between;
+        color: var(--muted);
+        font-size: 0.78rem;
+      }
+
+      @media (max-width: 1100px) {
+        .app { grid-template-columns: 1fr; }
+        .sidebar {
+          position: static;
+          height: auto;
+          border-right: none;
+          border-bottom: 1px solid var(--line);
+        }
+        .hero, .content, .metrics { grid-template-columns: 1fr; }
+      }
+
+      @media (max-width: 640px) {
+        .main {
+          padding: 18px 14px 24px;
+        }
+
+        .topbar {
+          flex-direction: column;
+          align-items: stretch;
+        }
+
+        .top-actions {
+          justify-content: flex-end;
+        }
+
+        .search {
+          max-width: none;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="app">
+      <aside class="sidebar">
+        <div class="brand">
+          <div class="logo">G</div>
+          <h3>GitFlow</h3>
+        </div>
+
+        <nav class="nav">
+          <a class="nav-item active" href="#">
+            <span class="nav-bullet"></span>
+            Dashboard
+          </a>
+          <a class="nav-item" href="#">
+            <span class="nav-bullet"></span>
+            Repositories
+          </a>
+          <a class="nav-item" href="#">
+            <span class="nav-bullet"></span>
+            Pull Requests
+          </a>
+          <a class="nav-item" href="#">
+            <span class="nav-bullet"></span>
+            Issues
+          </a>
+          <a class="nav-item" href="#">
+            <span class="nav-bullet"></span>
+            Projects
+          </a>
+          <a class="nav-item" href="#">
+            <span class="nav-bullet"></span>
+            Analytics
+          </a>
+        </nav>
+
+        <div class="side-card">
+          <h4>Overview</h4>
+          <div class="mini-stat">
+            <span>Open PRs</span>
+            <strong>126</strong>
+          </div>
+          <div class="mini-stat">
+            <span>Review Queue</span>
+            <strong>18</strong>
+          </div>
+          <div class="mini-stat">
+            <span>Deployments</span>
+            <strong>07</strong>
+          </div>
+        </div>
+      </aside>
+
+      <main class="main">
+        <header class="topbar">
+          <div class="search">
+            <span style="color: var(--muted); margin-right: 10px;">⌕</span>
+            <input type="text" placeholder="Search repositories, pull requests, or issues..." />
+          </div>
+
+          <div class="top-actions">
+            <div class="icon-btn">🔔</div>
+            <div class="icon-btn">⚙️</div>
+            <div class="avatar">T</div>
+          </div>
+        </header>
+
+        <section class="hero">
+          <div class="panel welcome">
+            <span class="tag">Overview</span>
+            <h1>Build faster. Ship smarter.</h1>
+            <p>
+              Your engineering workflow is healthy and efficient. Review work in progress,
+              monitor deployment health, and keep product delivery aligned with real-time data.
+            </p>
+
+            <div class="cta-row">
+              <button class="btn primary">New Release</button>
+              <button class="btn">View Activity</button>
+            </div>
+          </div>
+
+          <div class="panel summary">
+            <div class="summary-head">
+              <h3>Team Summary</h3>
+              <span class="chip green">+18.4%</span>
+            </div>
+
+            <div class="stat-grid">
+              <div class="stat-box">
+                <div class="stat-up">↑ 12.5%</div>
+                <div class="stat-num">48</div>
+                <div class="stat-label">Merged PRs</div>
+              </div>
+
+              <div class="stat-box">
+                <div class="stat-up">↑ 9.1%</div>
+                <div class="stat-num">26</div>
+                <div class="stat-label">Open Tasks</div>
+              </div>
+
+              <div class="stat-box">
+                <div class="stat-up">↑ 6.4%</div>
+                <div class="stat-num">14</div>
+                <div class="stat-label">Reviews</div>
+              </div>
+
+              <div class="stat-box">
+                <div class="stat-up">↑ 3.7%</div>
+                <div class="stat-num">94%</div>
+                <div class="stat-label">Success</div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="metrics">
+          <div class="panel metric-card">
+            <div class="metric-top">
+              <span class="chip blue">Deployments</span>
+              <span class="muted">Today</span>
+            </div>
+            <h2>24</h2>
+            <div class="trend">
+              <span class="dot" style="background: var(--green);"></span>
+              8.2% above last week
+            </div>
+          </div>
+
+          <div class="panel metric-card">
+            <div class="metric-top">
+              <span class="chip green">Automation</span>
+              <span class="muted">Live</span>
+            </div>
+            <h2>68%</h2>
+            <div class="trend">
+              <span class="dot" style="background: var(--blue);"></span>
+              12 tasks automated
+            </div>
+          </div>
+
+          <div class="panel metric-card">
+            <div class="metric-top">
+              <span class="chip yellow">Bug Rate</span>
+              <span class="muted">Stability</span>
+            </div>
+            <h2>1.8%</h2>
+            <div class="trend">
+              <span class="dot" style="background: var(--yellow);"></span>
+              Down by 0.7%
+            </div>
+          </div>
+
+          <div class="panel metric-card">
+            <div class="metric-top">
+              <span class="chip red">Incidents</span>
+              <span class="muted">Critical</span>
+            </div>
+            <h2>03</h2>
+            <div class="trend">
+              <span class="dot" style="background: var(--red);"></span>
+              Mitigated in 2h
+            </div>
+          </div>
+        </section>
+
+        <section class="content">
+          <div class="panel section">
+            <div class="section-head">
+              <h3>Notifications</h3>
+              <span class="muted">Updated 2 min ago</span>
+            </div>
+
+            <div class="notify-list">
+              <div class="notify">
+                <div class="notify-main">
+                  <div class="notif-icon">PR</div>
+                  <div>
+                    <h4 class="notif-title">New pull request approved</h4>
+                    <p class="notif-sub">web-platform / feature/onboarding</p>
+                  </div>
+                </div>
+                <span class="status review">Review</span>
+              </div>
+
+              <div class="notify">
+                <div class="notify-main">
+                  <div class="notif-icon green">CI</div>
+                  <div>
+                    <h4 class="notif-title">Production pipeline succeeded</h4>
+                    <p class="notif-sub">deploy-prod / release-23.4.8</p>
+                  </div>
+                </div>
+                <span class="status merge">Merged</span>
+              </div>
+
+              <div class="notify">
+                <div class="notify-main">
+                  <div class="notif-icon yellow">BUG</div>
+                  <div>
+                    <h4 class="notif-title">Issue triage queued</h4>
+                    <p class="notif-sub">support / onboarding-flow</p>
+                  </div>
+                </div>
+                <span class="status warning">Warning</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="right-stack">
+            <div class="panel release">
+              <div class="section-head">
+                <h3>Release Pipeline</h3>
+                <span class="muted">Live</span>
+              </div>
+
+              <div class="release-row">
+                <span class="timeline-dot"></span>
+                <div>
+                  <h4>Build succeeded</h4>
+                  <p>3 min ago</p>
+                </div>
+              </div>
+
+              <div class="release-row">
+                <span class="timeline-dot" style="background: linear-gradient(135deg, #60a5fa, #8b5cf6);"></span>
+                <div>
+                  <h4>QA validation running</h4>
+                  <p>12 min ago</p>
+                </div>
+              </div>
+
+              <div class="release-row">
+                <span class="timeline-dot" style="background: linear-gradient(135deg, #fbbf24, #f59e0b);"></span>
+                <div>
+                  <h4>Security review pending</h4>
+                  <p>25 min ago</p>
+                </div>
+              </div>
+            </div>
+
+            <div class="panel contributors">
+              <div class="section-head">
+                <h3>Contributors</h3>
+                <span class="muted">12 active</span>
+              </div>
+
+              <div class="avatar-list">
+                <div class="avatar a1">TM</div>
+                <div class="avatar a2">AL</div>
+                <div class="avatar a3">SJ</div>
+                <div class="avatar a4">RK</div>
+                <div class="avatar a5">PD</div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="repo-box">
+          <div class="panel section">
+            <div class="section-head">
+              <h3>Repositories</h3>
+              <span class="muted">Updated recently</span>
+            </div>
+
+            <div class="repo-list">
+              <div class="repo-card">
+                <div class="repo-top">
+                  <div class="repo-name"><span class="repo-dot"></span> web-platform</div>
+                  <span class="chip blue">Active</span>
+                </div>
+                <div class="repo-code">main / release-v2.4</div>
+                <div class="progress"><span></span></div>
+                <div class="repo-meta">
+                  <span>72% complete</span>
+                  <span>24 commits</span>
+                </div>
+              </div>
+
+              <div class="repo-card">
+                <div class="repo-top">
+                  <div class="repo-name"><span class="repo-dot"></span> infra-ops</div>
+                  <span class="chip green">Stable</span>
+                </div>
+                <div class="repo-code">production / deploy</div>
+                <div class="progress"><span style="width: 84%;"></span></div>
+                <div class="repo-meta">
+                  <span>84% complete</span>
+                  <span>18 commits</span>
+                </div>
+              </div>
+
+              <div class="repo-card">
+                <div class="repo-top">
+                  <div class="repo-name"><span class="repo-dot"></span> client-console</div>
+                  <span class="chip yellow">Review</span>
+                </div>
+                <div class="repo-code">feature / ux-qa</div>
+                <div class="progress"><span style="width: 61%;"></span></div>
+                <div class="repo-meta">
+                  <span>61% complete</span>
+                  <span>9 commits</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+      </main>
+    </div>
+  </body>
+</html>
