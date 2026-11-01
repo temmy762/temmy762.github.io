@@ -1,0 +1,10 @@
+name = "daniel-project-assistant"
+main = "worker.js"
+compatibility_date = "2025-09-01"
+
+[vars]
+GEMINI_MODEL = "gemini-2.5-flash"
+ALLOWED_ORIGINS = "https://temmy762.github.io"
+
+# The API key is a secret, never put it in this file. Set it with:
+#   npx wrangler secret put GEMINI_API_KEY

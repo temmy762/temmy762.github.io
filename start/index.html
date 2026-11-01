@@ -124,6 +124,9 @@ button{font:inherit;cursor:pointer}
   // with the random alias FormSubmit gives you to keep the address out of the page source.
   const ENDPOINT = "https://formsubmit.co/ajax/" + EMAIL;
   const STORE = "danielBrief.v1";
+  // Daniel's AI server (Cloudflare Worker, see /chat-worker). Leave empty to use the
+  // question-by-question chat only. Example: "https://daniel-project-assistant.NAME.workers.dev"
+  const AI_ENDPOINT = "";
 
   const $ = (id) => document.getElementById(id);
   const overlay = $("overlay"), log = $("log"), input = $("input"), send = $("send"), bar = $("bar");
@@ -149,11 +152,12 @@ button{font:inherit;cursor:pointer}
     { key: "timeline", q: () => "When would you like it ready?", chips: ["As soon as possible", "Within a month", "1 – 3 months", "I'm flexible"] },
     { key: "notes", q: () => "Last one: anything else Daniel should know? Links to examples you like are great.", optional: true },
   ];
-  const LABELS = { name: "Name", email: "Email", type: "Project", extra: "Details", business: "Business & goal", features: "Must-haves", budget: "Budget", timeline: "Timeline", notes: "Notes" };
+  const LABELS = { summary: "Summary", name: "Name", email: "Email", type: "Project", extra: "Details", business: "Business & goal", features: "Must-haves", budget: "Budget", timeline: "Timeline", notes: "Notes" };
 
   let data = {}, step = 0, current = null, busy = false, finished = false;
-  try { const s = JSON.parse(localStorage.getItem(STORE) || "null"); if (s && !s.sent) { data = s.data || {}; step = s.step || 0; } } catch (_) {}
-  const save = () => { try { localStorage.setItem(STORE, JSON.stringify({ data, step })); } catch (_) {} };
+  let mode = AI_ENDPOINT ? "ai" : "guided", ai = [];
+  try { const s = JSON.parse(localStorage.getItem(STORE) || "null"); if (s && !s.sent) { data = s.data || {}; step = s.step || 0; ai = Array.isArray(s.ai) ? s.ai : []; if (s.mode === "guided") mode = "guided"; } } catch (_) {}
+  const save = () => { try { localStorage.setItem(STORE, JSON.stringify({ data, step, ai, mode })); } catch (_) {} };
   const first = n => (n || "").trim().split(/\s+/)[0];
 
   function scroll() { log.scrollTop = log.scrollHeight; }
@@ -203,9 +207,70 @@ button{font:inherit;cursor:pointer}
     data[s.key] = v; step++; current = null; setInput(false); save(); ask();
   }
 
-  async function review() {
+  /* ---------- AI mode ---------- */
+  const AI_GREETING = "Hi! I'm Daniel's AI project assistant 👋\nTell me what you'd like to build, in your own words. I'll ask a few questions and pass everything to Daniel.";
+  const AI_STARTERS = ["I need a website", "I want a mobile app", "I want an AI chatbot", "I want to automate my business", "I have another idea"];
+  const isEmail = v => /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(v || "");
+
+  async function aiStart() {
+    setInput(false);
+    if (ai.length) {
+      ai.forEach(m => bubble(m.content, m.role === "user" ? "me" : "bot"));
+      setInput(true);
+      return;
+    }
+    busy = true; await botSay(AI_GREETING); busy = false;
+    ai.push({ role: "assistant", content: AI_GREETING }); save();
+    chipRow(AI_STARTERS, v => aiSend(v));
+    setInput(true);
+  }
+
+  async function aiSend(text) {
+    if (!text || busy || finished) return;
+    log.querySelectorAll(".chips button:not([disabled])").forEach(b => b.disabled = true);
+    bubble(text, "me");
+    ai.push({ role: "user", content: text.slice(0, 2000) }); save();
+    busy = true; setInput(false);
+    const t = typing();
+    try {
+      const ctrl = new AbortController(); const timer = setTimeout(() => ctrl.abort(), 25000);
+      const r = await fetch(AI_ENDPOINT.replace(/\/$/, "") + "/chat", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ messages: ai }), signal: ctrl.signal });
+      clearTimeout(timer);
+      const j = await r.json().catch(() => ({}));
+      t.remove();
+      if (r.status === 400 || r.status === 429) { busy = false; bubble(j.error || "Something went wrong. Please try again.", "bot"); ai.pop(); setInput(true); return; }
+      if (!r.ok || !j.reply) throw new Error(j.error || "AI error " + r.status);
+      bubble(j.reply, "bot"); ai.push({ role: "assistant", content: j.reply });
+      bar.style.width = Math.min(90, ai.length * 7) + "%";
+      busy = false; save();
+      if (j.brief) return aiBrief(j.brief);
+      setInput(true);
+    } catch (e) {
+      t.remove(); busy = false; ai.pop();
+      return fallbackToGuided();
+    }
+  }
+
+  function aiBrief(b) {
+    if (!isEmail(b.email)) {
+      const q = "One last thing: what email address should Daniel reply to?";
+      bubble(q, "bot"); ai.push({ role: "assistant", content: q }); save(); setInput(true, "email"); return;
+    }
+    data = { summary: b.summary, name: b.name, email: b.email, type: b.project_type, business: b.business_and_goal, features: b.features, budget: b.budget, timeline: b.timeline, notes: b.notes };
+    Object.keys(data).forEach(k => { if (!data[k] || /^not specified$/i.test(String(data[k]).trim())) delete data[k]; });
+    data.transcript = ai.map(m => (m.role === "user" ? "Visitor: " : "Assistant: ") + m.content).join("\n\n");
+    setInput(false); review(true);
+  }
+
+  async function fallbackToGuided() {
+    mode = "guided"; data = {}; step = 0; save();
+    await botSay("Sorry, I'm having trouble connecting to the AI right now. Let me ask you a few quick questions instead, so your project still reaches Daniel.");
+    ask();
+  }
+
+  async function review(fromAi) {
     bar.style.width = "100%";
-    await botSay(`Thanks, ${first(data.name)}! Here's your brief. Check it over, then send it to Daniel.`);
+    if (!fromAi) await botSay(`Thanks, ${first(data.name)}! Here's your brief. Check it over, then send it to Daniel.`);
     const box = document.createElement("div"); box.className = "summary";
     const dl = Object.keys(LABELS).filter(k => data[k]).map(k => `<dt>${LABELS[k]}</dt><dd></dd>`).join("");
     box.innerHTML = `<h3>YOUR PROJECT BRIEF</h3><dl>${dl}</dl><div class="row"><button class="primary" type="button" id="submit">Send to Daniel</button><button class="ghost" type="button" id="restart">Start over</button></div><div class="err" id="err" hidden></div>`;
@@ -224,7 +289,8 @@ button{font:inherit;cursor:pointer}
       _subject: `New project brief from ${data.name} (${data.type})`,
       _replyto: data.email, _template: "table", _captcha: "false",
       ...Object.fromEntries(Object.keys(LABELS).filter(k => data[k]).map(k => [LABELS[k], data[k]])),
-      "Sent from": "GitHub profile · Start a project chat",
+      ...(data.transcript ? { "Full conversation": data.transcript } : {}),
+      "Sent from": mode === "ai" ? "GitHub profile · AI project chat" : "GitHub profile · Start a project chat",
     };
     try {
       const r = await fetch(ENDPOINT, { method: "POST", headers: { "Content-Type": "application/json", Accept: "application/json" }, body: JSON.stringify(payload) });
@@ -244,9 +310,10 @@ button{font:inherit;cursor:pointer}
     }
   }
 
-  function restart() { data = {}; step = 0; try { localStorage.removeItem(STORE); } catch (_) {} log.innerHTML = ""; ask(); }
+  function restart() { data = {}; step = 0; ai = []; finished = false; mode = AI_ENDPOINT ? "ai" : "guided"; try { localStorage.removeItem(STORE); } catch (_) {} log.innerHTML = ""; bar.style.width = "0"; if (mode === "ai") aiStart(); else ask(); }
 
   async function resume() {
+    if (mode === "ai") return aiStart();
     if (step > 0) {
       await botSay(`Welcome back${data.name ? ", " + first(data.name) : ""}! Let's pick up where you left off.`);
     }
@@ -264,7 +331,7 @@ button{font:inherit;cursor:pointer}
   $("open").onclick = open; $("close").onclick = close;
   overlay.addEventListener("click", e => { if (e.target === overlay) close(); });
   document.addEventListener("keydown", e => { if (e.key === "Escape" && !overlay.hidden) close(); });
-  $("composer").addEventListener("submit", e => { e.preventDefault(); const v = input.value.trim(); if (input.disabled) return; input.value = ""; input.style.height = ""; answer(v); });
+  $("composer").addEventListener("submit", e => { e.preventDefault(); const v = input.value.trim(); if (input.disabled) return; input.value = ""; input.style.height = ""; if (mode === "ai") aiSend(v); else answer(v); });
   input.addEventListener("keydown", e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); $("composer").requestSubmit(); } });
   input.addEventListener("input", () => { input.style.height = "auto"; input.style.height = Math.min(input.scrollHeight, 120) + "px"; });
 
