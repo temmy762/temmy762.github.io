@@ -3,8 +3,8 @@ main = "worker.js"
 compatibility_date = "2025-09-01"
 
 [vars]
-MISTRAL_MODEL = "mistral-small-latest"
+OPENAI_MODEL = "gpt-4.1-mini"
 ALLOWED_ORIGINS = "https://temmy762.github.io"
 
 # The API key is a secret, never put it in this file. Set it with:
-#   npx wrangler secret put MISTRAL_API_KEY
+#   npx wrangler secret put OPENAI_API_KEY

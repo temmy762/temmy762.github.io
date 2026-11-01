@@ -5,21 +5,26 @@
  * Single file, no dependencies, so it can be pasted straight into the Cloudflare dashboard.
  *
  * Settings (Cloudflare dashboard → your Worker → Settings → Variables and Secrets).
- * Add ONE AI key. If both are set, Mistral is used.
- *   MISTRAL_API_KEY  (Secret)  key from https://console.mistral.ai/api-keys
- *   GEMINI_API_KEY   (Secret)  key from https://aistudio.google.com/apikey
+ * Add at least one AI key as a Secret. If several are set, they are tried in this order,
+ * and the next one is used automatically when one fails:
+ *   OPENAI_API_KEY   key from https://platform.openai.com/api-keys
+ *   MISTRAL_API_KEY  key from https://console.mistral.ai/api-keys
+ *   GEMINI_API_KEY   key from https://aistudio.google.com/apikey
  * Optional (Text):
+ *   OPENAI_MODEL     defaults to "gpt-4.1-mini"
  *   MISTRAL_MODEL    defaults to "mistral-small-latest"
  *   GEMINI_MODEL     defaults to "gemini-2.5-flash"
  *   ALLOWED_ORIGINS  comma-separated; defaults to the GitHub Pages site
  *
  * API: POST /chat  { messages: [{ role: "user" | "assistant", content: string }] }
  *   → { reply: string, brief?: {...} }   brief is present once the AI has everything it needs.
- * GET /health → { ok: true }
+ * GET /health          → which AI keys are set
+ * GET /health?test=1   → also sends one test message to each AI and reports the result
  */
 
 const DEFAULT_MODEL = "gemini-2.5-flash";
 const DEFAULT_MISTRAL_MODEL = "mistral-small-latest";
+const DEFAULT_OPENAI_MODEL = "gpt-4.1-mini";
 const DEFAULT_ORIGINS = ["https://temmy762.github.io"];
 
 const LIMITS = {
@@ -157,28 +162,27 @@ async function askGemini(messages, env) {
   return { reply: text };
 }
 
-async function askMistral(messages, env) {
-  const model = env.MISTRAL_MODEL || DEFAULT_MISTRAL_MODEL;
+// OpenAI and Mistral share the same chat format, so one function handles both.
+async function askChatCompletions(messages, { name, url, key, model, tokenField }) {
   const convo = [];
   for (const m of messages) {
     if (convo.length === 0 && m.role !== "user") continue; // start with the visitor's first message
     convo.push({ role: m.role, content: m.content });
   }
-  const res = await fetch("https://api.mistral.ai/v1/chat/completions", {
+  const res = await fetch(url, {
     method: "POST",
-    headers: { "Content-Type": "application/json", Accept: "application/json", Authorization: `Bearer ${env.MISTRAL_API_KEY}` },
+    headers: { "Content-Type": "application/json", Accept: "application/json", Authorization: `Bearer ${key}` },
     body: JSON.stringify({
       model,
       messages: [{ role: "system", content: SYSTEM_PROMPT }, ...convo],
       tools: [{ type: "function", function: BRIEF_TOOL }],
       tool_choice: "auto",
-      temperature: 0.6,
-      max_tokens: 800,
+      [tokenField]: 800,
     }),
   });
   if (!res.ok) {
     const detail = await res.text().catch(() => "");
-    throw new Error(`Mistral ${res.status}: ${detail.slice(0, 300)}`);
+    throw new Error(`${name} ${res.status}: ${detail.slice(0, 300)}`);
   }
   const data = await res.json();
   const msg = data?.choices?.[0]?.message || {};
@@ -189,8 +193,34 @@ async function askMistral(messages, env) {
     if (typeof args === "string") { try { args = JSON.parse(args); } catch { args = {}; } }
     return { reply: text || "Thanks! Here's your brief. Check it over, then send it to Daniel.", brief: args || {} };
   }
-  if (!text) throw new Error("Mistral returned no text");
+  if (!text) throw new Error(`${name} returned no text`);
   return { reply: text };
+}
+
+const askOpenAI = (messages, env) => askChatCompletions(messages, {
+  name: "OpenAI", url: "https://api.openai.com/v1/chat/completions", key: env.OPENAI_API_KEY,
+  model: env.OPENAI_MODEL || DEFAULT_OPENAI_MODEL, tokenField: "max_completion_tokens",
+});
+const askMistral = (messages, env) => askChatCompletions(messages, {
+  name: "Mistral", url: "https://api.mistral.ai/v1/chat/completions", key: env.MISTRAL_API_KEY,
+  model: env.MISTRAL_MODEL || DEFAULT_MISTRAL_MODEL, tokenField: "max_tokens",
+});
+
+const PROVIDERS = [
+  { id: "openai", key: "OPENAI_API_KEY", ask: askOpenAI },
+  { id: "mistral", key: "MISTRAL_API_KEY", ask: askMistral },
+  { id: "gemini", key: "GEMINI_API_KEY", ask: askGemini },
+];
+
+// Try each configured AI in order until one answers.
+async function askAny(messages, env) {
+  const active = PROVIDERS.filter((p) => env[p.key]);
+  let lastErr;
+  for (const p of active) {
+    try { return { ...(await p.ask(messages, env)), provider: p.id }; }
+    catch (err) { console.error(err); lastErr = err; }
+  }
+  throw lastErr || new Error("No AI configured");
 }
 
 export default {
@@ -200,23 +230,26 @@ export default {
     const url = new URL(request.url);
 
     if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: cors });
-    const provider = env.MISTRAL_API_KEY ? "mistral" : env.GEMINI_API_KEY ? "gemini" : null;
+    const active = PROVIDERS.filter((p) => env[p.key]);
     if (request.method === "GET" && url.pathname === "/health") {
-      const out = { ok: true, configured: Boolean(provider), provider };
-      if (provider && url.searchParams.has("test")) {
-        // Sends one tiny message to the AI and reports the result. Visit /health?test=1
-        try {
-          const ask = provider === "mistral" ? askMistral : askGemini;
-          const r = await ask([{ role: "user", content: "Hi, I need a website." }], env);
-          out.ai_test = "passed"; out.sample_reply = r.reply.slice(0, 160);
-        } catch (err) {
-          out.ok = false; out.ai_test = "failed"; out.error = String(err.message || err).slice(0, 300);
+      const out = { ok: true, configured: active.length > 0, providers: active.map((p) => p.id) };
+      if (active.length && url.searchParams.has("test")) {
+        // Sends one tiny message to each configured AI and reports the result. Visit /health?test=1
+        out.tests = {};
+        for (const p of active) {
+          try {
+            const r = await p.ask([{ role: "user", content: "Hi, I need a website." }], env);
+            out.tests[p.id] = { result: "passed", sample_reply: r.reply.slice(0, 160) };
+          } catch (err) {
+            out.tests[p.id] = { result: "failed", error: String(err.message || err).slice(0, 300) };
+          }
         }
+        out.ok = Object.values(out.tests).some((t) => t.result === "passed");
       }
       return json(out, 200, cors);
     }
     if (request.method !== "POST" || url.pathname !== "/chat") return json({ error: "Not found" }, 404, cors);
-    if (!provider) return json({ error: "The AI is not configured yet." }, 503, cors);
+    if (!active.length) return json({ error: "The AI is not configured yet." }, 503, cors);
 
     const ip = request.headers.get("CF-Connecting-IP") || "unknown";
     if (rateLimited(ip)) return json({ error: "Too many messages. Please wait a minute." }, 429, cors);
@@ -227,10 +260,9 @@ export default {
     if (problem) return json({ error: problem }, 400, cors);
 
     try {
-      const ask = provider === "mistral" ? askMistral : askGemini;
-      return json(await ask(body.messages, env), 200, cors);
+      const { provider, ...result } = await askAny(body.messages, env);
+      return json(result, 200, cors);
     } catch (err) {
-      console.error(err);
       return json({ error: "The AI is unavailable right now." }, 502, cors);
     }
   },
