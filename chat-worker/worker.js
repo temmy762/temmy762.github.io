@@ -1,13 +1,17 @@
 /**
- * Daniel's project assistant: a Cloudflare Worker that keeps the Gemini API key secret
+ * Daniel's project assistant: a Cloudflare Worker that keeps the AI API key secret
  * and runs the AI side of the "Start a project" chat on temmy762.github.io/start/.
  *
  * Single file, no dependencies, so it can be pasted straight into the Cloudflare dashboard.
  *
- * Settings (Cloudflare dashboard → your Worker → Settings → Variables and Secrets):
- *   GEMINI_API_KEY   (Secret, required)  key from https://aistudio.google.com/apikey
- *   GEMINI_MODEL     (Text, optional)    defaults to DEFAULT_MODEL below
- *   ALLOWED_ORIGINS  (Text, optional)    comma-separated; defaults to the GitHub Pages site
+ * Settings (Cloudflare dashboard → your Worker → Settings → Variables and Secrets).
+ * Add ONE AI key. If both are set, Mistral is used.
+ *   MISTRAL_API_KEY  (Secret)  key from https://console.mistral.ai/api-keys
+ *   GEMINI_API_KEY   (Secret)  key from https://aistudio.google.com/apikey
+ * Optional (Text):
+ *   MISTRAL_MODEL    defaults to "mistral-small-latest"
+ *   GEMINI_MODEL     defaults to "gemini-2.5-flash"
+ *   ALLOWED_ORIGINS  comma-separated; defaults to the GitHub Pages site
  *
  * API: POST /chat  { messages: [{ role: "user" | "assistant", content: string }] }
  *   → { reply: string, brief?: {...} }   brief is present once the AI has everything it needs.
@@ -15,6 +19,7 @@
  */
 
 const DEFAULT_MODEL = "gemini-2.5-flash";
+const DEFAULT_MISTRAL_MODEL = "mistral-small-latest";
 const DEFAULT_ORIGINS = ["https://temmy762.github.io"];
 
 const LIMITS = {
@@ -152,6 +157,42 @@ async function askGemini(messages, env) {
   return { reply: text };
 }
 
+async function askMistral(messages, env) {
+  const model = env.MISTRAL_MODEL || DEFAULT_MISTRAL_MODEL;
+  const convo = [];
+  for (const m of messages) {
+    if (convo.length === 0 && m.role !== "user") continue; // start with the visitor's first message
+    convo.push({ role: m.role, content: m.content });
+  }
+  const res = await fetch("https://api.mistral.ai/v1/chat/completions", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Accept: "application/json", Authorization: `Bearer ${env.MISTRAL_API_KEY}` },
+    body: JSON.stringify({
+      model,
+      messages: [{ role: "system", content: SYSTEM_PROMPT }, ...convo],
+      tools: [{ type: "function", function: BRIEF_TOOL }],
+      tool_choice: "auto",
+      temperature: 0.6,
+      max_tokens: 800,
+    }),
+  });
+  if (!res.ok) {
+    const detail = await res.text().catch(() => "");
+    throw new Error(`Mistral ${res.status}: ${detail.slice(0, 300)}`);
+  }
+  const data = await res.json();
+  const msg = data?.choices?.[0]?.message || {};
+  const text = (typeof msg.content === "string" ? msg.content : Array.isArray(msg.content) ? msg.content.map((c) => c.text || "").join("") : "").trim();
+  const call = (msg.tool_calls || []).find((c) => c?.function?.name === BRIEF_TOOL.name);
+  if (call) {
+    let args = call.function.arguments;
+    if (typeof args === "string") { try { args = JSON.parse(args); } catch { args = {}; } }
+    return { reply: text || "Thanks! Here's your brief. Check it over, then send it to Daniel.", brief: args || {} };
+  }
+  if (!text) throw new Error("Mistral returned no text");
+  return { reply: text };
+}
+
 export default {
   async fetch(request, env) {
     const origin = request.headers.get("Origin");
@@ -159,9 +200,10 @@ export default {
     const url = new URL(request.url);
 
     if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: cors });
-    if (request.method === "GET" && url.pathname === "/health") return json({ ok: true, configured: Boolean(env.GEMINI_API_KEY) }, 200, cors);
+    const provider = env.MISTRAL_API_KEY ? "mistral" : env.GEMINI_API_KEY ? "gemini" : null;
+    if (request.method === "GET" && url.pathname === "/health") return json({ ok: true, configured: Boolean(provider), provider }, 200, cors);
     if (request.method !== "POST" || url.pathname !== "/chat") return json({ error: "Not found" }, 404, cors);
-    if (!env.GEMINI_API_KEY) return json({ error: "The AI is not configured yet." }, 503, cors);
+    if (!provider) return json({ error: "The AI is not configured yet." }, 503, cors);
 
     const ip = request.headers.get("CF-Connecting-IP") || "unknown";
     if (rateLimited(ip)) return json({ error: "Too many messages. Please wait a minute." }, 429, cors);
@@ -172,7 +214,8 @@ export default {
     if (problem) return json({ error: problem }, 400, cors);
 
     try {
-      return json(await askGemini(body.messages, env), 200, cors);
+      const ask = provider === "mistral" ? askMistral : askGemini;
+      return json(await ask(body.messages, env), 200, cors);
     } catch (err) {
       console.error(err);
       return json({ error: "The AI is unavailable right now." }, 502, cors);
