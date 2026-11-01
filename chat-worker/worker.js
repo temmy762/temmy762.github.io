@@ -201,7 +201,20 @@ export default {
 
     if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: cors });
     const provider = env.MISTRAL_API_KEY ? "mistral" : env.GEMINI_API_KEY ? "gemini" : null;
-    if (request.method === "GET" && url.pathname === "/health") return json({ ok: true, configured: Boolean(provider), provider }, 200, cors);
+    if (request.method === "GET" && url.pathname === "/health") {
+      const out = { ok: true, configured: Boolean(provider), provider };
+      if (provider && url.searchParams.has("test")) {
+        // Sends one tiny message to the AI and reports the result. Visit /health?test=1
+        try {
+          const ask = provider === "mistral" ? askMistral : askGemini;
+          const r = await ask([{ role: "user", content: "Hi, I need a website." }], env);
+          out.ai_test = "passed"; out.sample_reply = r.reply.slice(0, 160);
+        } catch (err) {
+          out.ok = false; out.ai_test = "failed"; out.error = String(err.message || err).slice(0, 300);
+        }
+      }
+      return json(out, 200, cors);
+    }
     if (request.method !== "POST" || url.pathname !== "/chat") return json({ error: "Not found" }, 404, cors);
     if (!provider) return json({ error: "The AI is not configured yet." }, 503, cors);
 

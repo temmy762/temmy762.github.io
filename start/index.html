@@ -21,6 +21,7 @@
   --f-ui:-apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif;
 }
 *{box-sizing:border-box}
+[hidden]{display:none!important}
 html,body{height:100%}
 body{margin:0;background:radial-gradient(ellipse at 100% 0%, #0f3a33 0, transparent 55%),var(--bg);color:var(--fg);font-family:var(--f-ui);font-size:15px;line-height:1.5}
 a{color:var(--cyan)}
@@ -156,7 +157,7 @@ button{font:inherit;cursor:pointer}
 
   let data = {}, step = 0, current = null, busy = false, finished = false;
   let mode = AI_ENDPOINT ? "ai" : "guided", ai = [];
-  try { const s = JSON.parse(localStorage.getItem(STORE) || "null"); if (s && !s.sent) { data = s.data || {}; step = s.step || 0; ai = Array.isArray(s.ai) ? s.ai : []; if (s.mode === "guided") mode = "guided"; } } catch (_) {}
+  try { const s = JSON.parse(localStorage.getItem(STORE) || "null"); if (s && !s.sent) { data = s.data || {}; step = s.step || 0; ai = Array.isArray(s.ai) ? s.ai : []; } } catch (_) {}
   const save = () => { try { localStorage.setItem(STORE, JSON.stringify({ data, step, ai, mode })); } catch (_) {} };
   const first = n => (n || "").trim().split(/\s+/)[0];
 
@@ -232,11 +233,18 @@ button{font:inherit;cursor:pointer}
     ai.push({ role: "user", content: text.slice(0, 2000) }); save();
     busy = true; setInput(false);
     const t = typing();
-    try {
+    const callAI = async () => {
       const ctrl = new AbortController(); const timer = setTimeout(() => ctrl.abort(), 25000);
-      const r = await fetch(AI_ENDPOINT.replace(/\/$/, "") + "/chat", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ messages: ai }), signal: ctrl.signal });
-      clearTimeout(timer);
-      const j = await r.json().catch(() => ({}));
+      try {
+        const r = await fetch(AI_ENDPOINT.replace(/\/$/, "") + "/chat", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ messages: ai }), signal: ctrl.signal });
+        return { r, j: await r.json().catch(() => ({})) };
+      } finally { clearTimeout(timer); }
+    };
+    try {
+      let res;
+      try { res = await callAI(); } catch (_) { res = null; }
+      if (!res || res.r.status >= 500) { await new Promise(ok => setTimeout(ok, 1200)); res = await callAI(); } // one retry
+      const { r, j } = res;
       t.remove();
       if (r.status === 400 || r.status === 429) { busy = false; bubble(j.error || "Something went wrong. Please try again.", "bot"); ai.pop(); setInput(true); return; }
       if (!r.ok || !j.reply) throw new Error(j.error || "AI error " + r.status);
@@ -246,6 +254,7 @@ button{font:inherit;cursor:pointer}
       if (j.brief) return aiBrief(j.brief);
       setInput(true);
     } catch (e) {
+      console.error("AI chat error:", e);
       t.remove(); busy = false; ai.pop();
       return fallbackToGuided();
     }
@@ -295,7 +304,7 @@ button{font:inherit;cursor:pointer}
     try {
       const r = await fetch(ENDPOINT, { method: "POST", headers: { "Content-Type": "application/json", Accept: "application/json" }, body: JSON.stringify(payload) });
       const j = await r.json().catch(() => ({}));
-      if (!r.ok || j.success === "false" || j.success === false) throw new Error(j.message || "Send failed");
+      if (!r.ok || j.success === "false" || j.success === false) { const e = new Error(j.message || "Send failed (" + r.status + ")"); e.service = j.message; throw e; }
       box.querySelector(".row").remove(); finished = true;
       try { localStorage.setItem(STORE, JSON.stringify({ sent: true })); } catch (_) {}
       await botSay(`Sent! ✅ Daniel has your brief and will reply to ${data.email} as soon as he can.\n\nWhile you wait, you can browse his work on Upwork.`);
@@ -303,10 +312,15 @@ button{font:inherit;cursor:pointer}
       row.innerHTML = `<a class="chip" href="https://www.upwork.com/freelancers/bankoledanieloriyomi" target="_blank" rel="noopener">See my Upwork profile</a><a class="chip" href="https://github.com/temmy762">Back to GitHub</a>`;
       log.appendChild(row); scroll();
     } catch (e) {
+      console.error("Brief send error:", e);
       btn.disabled = false; btn.textContent = "Try again";
       const mail = `mailto:${EMAIL}?subject=${encodeURIComponent("New project brief from " + data.name)}&body=${encodeURIComponent(briefText())}`;
       err.hidden = false;
-      err.innerHTML = `That didn't send. Try again, or <a href="${mail}">send it by email instead</a> (your answers are filled in for you).`;
+      const activation = /activat/i.test(e.service || "");
+      err.innerHTML = (activation
+        ? `Daniel's inbox isn't switched on yet, so this couldn't be delivered. Please <a href="${mail}">send it by email instead</a> (your answers are filled in for you).`
+        : `That didn't send. Try again, or <a href="${mail}">send it by email instead</a> (your answers are filled in for you).`)
+        + (e.service ? `<br><small style="color:var(--muted)">Mail service said: ${e.service.replace(/[<>&]/g, "")}</small>` : "");
     }
   }
 
